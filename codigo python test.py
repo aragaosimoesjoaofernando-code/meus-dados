@@ -99,8 +99,10 @@ def main():
 if __name__ == "__main__":
     main()
 
-    bash
+# After running this script, push changes to the repository:
+# git push origin main
 
-    git push origin main
-
-    
+import subprocess
+subprocess.run(["git", "add", "top_2_clientes_vendas.csv"])
+subprocess.run(["git", "commit", "-m", "Adiciona arquivo com os top 2 clientes com mais vendas"])
+subprocess.run(["git", "push", "origin", "main"])   
