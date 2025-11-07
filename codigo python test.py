@@ -106,3 +106,4 @@ import subprocess
 subprocess.run(["git", "add", "top_2_clientes_vendas.csv"])
 subprocess.run(["git", "commit", "-m", "Adiciona arquivo com os top 2 clientes com mais vendas"])
 subprocess.run(["git", "push", "origin", "main"])   
+
