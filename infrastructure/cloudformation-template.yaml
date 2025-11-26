@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Infraestrutura AWS para coleta de dados de cotações de ações via Alpha Vantage API'
+
+Parameters:
+  AlphaVantageApiKey:
+    Type: String
+    Description: 'Chave da API Alpha Vantage'
+    NoEcho: true
+    Default: 'IRYWV66KYDTB6S2W'
+  
+  BucketName:
+    Type: String
+    Description: 'Nome do bucket S3 (deve ser único globalmente)'
+    Default: 'stock-quotes-data'
+
+Resources:
+  # S3 Bucket para armazenar dados
+  StockDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::AccountId}-${BucketName}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+          - Id: TransitionToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 90
+                StorageClass: GLACIER
+      Tags:
+        - Key: Project
+          Value: StockDataPipeline
+        - Key: Environment
+          Value: Educational
+
+  # IAM Role para Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-LambdaExecutionRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub '${StockDataBucket}/*'
+                  - !GetAtt StockDataBucket.Arn
+
+  # Lambda Function
+  StockFetcherFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-StockFetcher'
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          ALPHA_VANTAGE_API_KEY: !Ref AlphaVantageApiKey
+          S3_BUCKET_NAME: !Ref StockDataBucket
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Lambda function placeholder - código será atualizado via deployment package')
+              }
+      Tags:
+        - Key: Project
+          Value: StockDataPipeline
+        - Key: Environment
+          Value: Educational
+
+  # EventBridge Rule para agendar execução
+  StockFetcherSchedule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${AWS::StackName}-StockFetcherSchedule'
+      Description: 'Executa Lambda a cada 5 minutos durante horário comercial americano (9:30 AM - 4:00 PM EST)'
+      ScheduleExpression: 'cron(*/5 14-21 ? * MON-FRI *)'
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt StockFetcherFunction.Arn
+          Id: StockFetcherTarget
+          Input: '{}'
+
+  # Permissão para EventBridge invocar Lambda
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref StockFetcherFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt StockFetcherSchedule.Arn
+
+Outputs:
+  BucketName:
+    Description: 'Nome do bucket S3 criado'
+    Value: !Ref StockDataBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+
+  BucketArn:
+    Description: 'ARN do bucket S3'
+    Value: !GetAtt StockDataBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketArn'
+
+  LambdaFunctionName:
+    Description: 'Nome da função Lambda'
+    Value: !Ref StockFetcherFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionName'
+
+  LambdaFunctionArn:
+    Description: 'ARN da função Lambda'
+    Value: !GetAtt StockFetcherFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaFunctionArn'
+
+  EventBridgeRuleArn:
+    Description: 'ARN da regra do EventBridge'
+    Value: !GetAtt StockFetcherSchedule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EventBridgeRuleArn'
+
