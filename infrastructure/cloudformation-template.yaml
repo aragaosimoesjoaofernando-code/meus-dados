@@ -10,7 +10,7 @@ Parameters:
   
   BucketName:
     Type: String
-    Description: 'Nome do bucket S3 (deve ser único globalmente)'
+    Description: 'Nome do bucket S3'
     Default: 'stock-quotes-data'
 
 Resources:
@@ -71,7 +71,7 @@ Resources:
                   - !GetAtt StockDataBucket.Arn
 
   # Lambda Function
-  StockFetcherFunction:
+    StockFetcherFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-StockFetcher'
@@ -85,18 +85,13 @@ Resources:
           ALPHA_VANTAGE_API_KEY: !Ref AlphaVantageApiKey
           S3_BUCKET_NAME: !Ref StockDataBucket
       Code:
-        ZipFile: |
-          import json
-          def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'body': json.dumps('Lambda function placeholder - código será atualizado via deployment package')
-              }
-      Tags:
-        - Key: Project
-          Value: StockDataPipeline
-        - Key: Environment
-          Value: Educational
+        S3Bucket: "lambda-code-20251201223321-8309"  # <-- SEU BUCKET
+        S3Key: "lambda-deployment.zip"                # <-- SEU ARQUIVO
+        Tags:
+          - Key: Project
+            Value: StockDataPipeline
+          - Key: Environment
+            Value: Educational
 
   # EventBridge Rule para agendar execução
   StockFetcherSchedule:
@@ -120,12 +115,12 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt StockFetcherSchedule.Arn
 
-Outputs:
-  BucketName:
-    Description: 'Nome do bucket S3 criado'
-    Value: !Ref StockDataBucket
-    Export:
-      Name: !Sub '${AWS::StackName}-BucketName'
+  Outputs:
+    BucketName:
+      Description: 'Nome do bucket S3 criado'
+      Value: !Ref StockDataBucket
+      Export:
+        Name: !Sub '${AWS::StackName}-BucketName'
 
   BucketArn:
     Description: 'ARN do bucket S3'
@@ -150,4 +145,18 @@ Outputs:
     Value: !GetAtt StockFetcherSchedule.Arn
     Export:
       Name: !Sub '${AWS::StackName}-EventBridgeRuleArn'
+
+  LambdaCodeBucket:
+      Type: String
+      Description: 'Bucket com código Lambda'
+      Default: 'lambda-code-20251201223321-8309'
+
+  LambdaCodeKey:
+      Type: String
+      Description: 'Chave do arquivo ZIP no S3'
+      Default: 'lambda-deployment.zip'
+
+
+
+
 
