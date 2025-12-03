@@ -1,0 +1,83 @@
+name: Deploy to AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      stack_name:
+        description: 'Nome do CloudFormation stack'
+        required: true
+        default: 'stock-data-pipeline'
+        type: string
+      aws_region:
+        description: 'Região AWS para deploy'
+        required: true
+        default: 'us-east-1'
+        type: choice
+        options:
+          - us-east-1
+          - us-east-2
+          - us-west-1
+          - us-west-2
+          - eu-west-1
+          - sa-east-1
+      alpha_vantage_api_key:
+        description: 'Chave da API Alpha Vantage'
+        required: true
+        type: string
+      bucket_name:
+        description: 'Nome do bucket S3'
+        required: false
+        default: 'stock-quotes-data'
+        type: string
+
+env:
+  AWS_REGION: ${{ inputs.aws_region || 'us-east-1' }}
+  STACK_NAME: ${{ inputs.stack_name || 'stock-data-pipeline' }}
+
+jobs:
+  deploy:
+    name: Build and Deploy Lambda
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install AWS SAM CLI
+        run: |
+          pip install aws-sam-cli
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: SAM Build
+        run: |
+          sam build --template template.yaml
+
+      - name: SAM Deploy
+        run: |
+          sam deploy \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --capabilities CAPABILITY_IAM \
+            --parameter-overrides \
+              AlphaVantageApiKey=${{ inputs.alpha_vantage_api_key }} \
+              BucketName=${{ inputs.bucket_name || 'stock-quotes-data' }} \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deploy concluído com sucesso!"
+          echo "Stack: ${{ env.STACK_NAME }}"
+          echo "Região: ${{ env.AWS_REGION }}"
+

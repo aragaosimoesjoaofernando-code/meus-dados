@@ -164,90 +164,70 @@ Arquivo atualizado periodicamente com informações estáticas das empresas.
 
 ## Como Fazer Deploy
 
-### Pré-requisitos
+### Método Recomendado: GitHub Actions + AWS SAM
+
+O projeto agora usa **AWS SAM (Serverless Application Model)** e **GitHub Actions** para deploy automatizado, eliminando a necessidade de gerenciar arquivos ZIP manualmente.
+
+#### Pré-requisitos
 
 1. **Conta AWS** com permissões para criar recursos
-2. **AWS CLI** instalado e configurado
-3. **Python 3.12** instalado (para desenvolvimento local)
-4. **Chave da API Alpha Vantage** (já incluída no template)
+2. **Repositório GitHub** com o código
+3. **AWS Credentials** configuradas como Secrets no GitHub
 
-### Passo 1: Preparar Código Lambda
+#### Passo 1: Configurar Credenciais AWS no GitHub
 
-O código Lambda precisa ser empacotado em um arquivo ZIP antes do deploy.
+1. Acesse **Settings** → **Secrets and variables** → **Actions** no seu repositório
+2. Adicione os seguintes secrets:
+   - `AWS_ACCESS_KEY_ID`: Sua AWS Access Key ID
+   - `AWS_SECRET_ACCESS_KEY`: Sua AWS Secret Access Key
 
-```bash
-# Navegar para o diretório do Lambda
-cd lambda/stock_fetcher
+#### Passo 2: Executar Deploy via GitHub Actions
 
-# Instalar dependências em um diretório local
-pip install -r requirements.txt -t .
+1. Vá na aba **Actions** do repositório
+2. Selecione o workflow **Deploy to AWS**
+3. Clique em **Run workflow**
+4. Preencha os parâmetros:
+   - **Stack name**: `stock-data-pipeline`
+   - **AWS Region**: `us-east-1` (ou sua região preferida)
+   - **Alpha Vantage API Key**: Sua chave da API
+   - **Bucket Name**: `stock-quotes-data`
+5. Clique em **Run workflow**
 
-# Criar arquivo ZIP (Windows PowerShell)
-Compress-Archive -Path *.py,*.txt -DestinationPath ../lambda-deployment.zip -Force
+O workflow irá:
+- ✅ Fazer build do Lambda automaticamente
+- ✅ Instalar dependências do `requirements.txt`
+- ✅ Fazer deploy para AWS usando SAM
+- ✅ Criar/atualizar todos os recursos necessários
 
-# Ou no Linux/Mac
-zip -r ../lambda-deployment.zip . -x "*.pyc" "__pycache__/*"
-```
+📖 **Documentação completa**: Veja [docs/DEPLOY.md](DEPLOY.md) para instruções detalhadas.
 
-### Passo 2: Fazer Upload do Código Lambda para S3
+### Método Alternativo: Deploy Local com SAM CLI
 
-```bash
-# Criar bucket temporário para armazenar código (ou usar um existente)
-aws s3 mb s3://seu-bucket-lambda-code
-
-# Fazer upload do ZIP
-aws s3 cp lambda/lambda-deployment.zip s3://seu-bucket-lambda-code/
-
-# Obter URL do objeto
-aws s3 presign s3://seu-bucket-lambda-code/lambda-deployment.zip
-```
-
-### Passo 3: Atualizar Template CloudFormation
-
-Edite o template `infrastructure/cloudformation-template.yaml` para usar o código do S3:
-
-```yaml
-StockFetcherFunction:
-  Type: AWS::Lambda::Function
-  Properties:
-    # ... outras propriedades ...
-    Code:
-      S3Bucket: seu-bucket-lambda-code
-      S3Key: lambda-deployment.zip
-```
-
-### Passo 4: Deploy do CloudFormation
+Para desenvolvimento e testes locais:
 
 ```bash
-# Criar stack
-aws cloudformation create-stack \
+# Instalar SAM CLI
+pip install aws-sam-cli
+
+# Configurar credenciais AWS
+aws configure
+
+# Build do projeto
+sam build --template template.yaml
+
+# Deploy
+sam deploy \
   --stack-name stock-data-pipeline \
-  --template-body file://infrastructure/cloudformation-template.yaml \
-  --parameters ParameterKey=AlphaVantageApiKey,ParameterValue=IRYWV66KYDTB6S2W \
-               ParameterKey=BucketName,ParameterValue=stock-quotes-data \
-  --capabilities CAPABILITY_NAMED_IAM
-
-# Verificar status
-aws cloudformation describe-stacks --stack-name stock-data-pipeline
-
-# Ver outputs
-aws cloudformation describe-stacks \
-  --stack-name stock-data-pipeline \
-  --query 'Stacks[0].Outputs'
+  --region us-east-1 \
+  --parameter-overrides \
+    AlphaVantageApiKey=SUA_API_KEY \
+    BucketName=stock-quotes-data \
+  --capabilities CAPABILITY_IAM
 ```
 
-### Passo 5: Atualizar Código Lambda (quando necessário)
+### Método Legado: CloudFormation Manual
 
-```bash
-# Após fazer alterações no código, criar novo ZIP e fazer upload
-aws s3 cp lambda/lambda-deployment.zip s3://seu-bucket-lambda-code/ --force
-
-# Atualizar função Lambda
-aws lambda update-function-code \
-  --function-name stock-data-pipeline-StockFetcherFunction-XXXXX \
-  --s3-bucket seu-bucket-lambda-code \
-  --s3-key lambda-deployment.zip
-```
+O template CloudFormation original ainda está disponível em `infrastructure/cloudformation-template.yaml` para referência, mas não é mais o método recomendado.
 
 ## Explicação dos Componentes CloudFormation
 
@@ -397,15 +377,21 @@ Este projeto pode ser expandido com:
 
 ```
 meus-dados/
+├── template.yaml                        # Template SAM (deploy principal)
+├── .samconfig.toml                      # Configurações SAM
 ├── infrastructure/
-│   └── cloudformation-template.yaml    # Template CloudFormation
+│   └── cloudformation-template.yaml    # Template CloudFormation (legado)
+├── .github/
+│   └── workflows/
+│       └── deploy.yml                  # Workflow GitHub Actions
 ├── lambda/
-│   └── stock_fetcher/
+│   └── stock-fetcher/
 │       ├── lambda_function.py          # Código principal
 │       ├── company_list.py             # Lista de empresas
 │       └── requirements.txt            # Dependências Python
 ├── docs/
-│   └── README.md                       # Esta documentação
+│   ├── README.md                       # Esta documentação
+│   └── DEPLOY.md                       # Guia de deploy detalhado
 └── .gitignore                          # Arquivos a ignorar no Git
 ```
 
