@@ -85,7 +85,7 @@ Resources:
           ALPHA_VANTAGE_API_KEY: !Ref AlphaVantageApiKey
           S3_BUCKET_NAME: !Ref StockDataBucket
       Code:
-        S3Bucket: "lambda-code-20251201223321-8309"  # <-- SEU BUCKET
+        S3Bucket: "lambda-code-20251201221655-2131"  # <-- SEU BUCKET
         S3Key: "lambda-deployment.zip"                # <-- SEU ARQUIVO
         Tags:
           - Key: Project
