@@ -12,6 +12,16 @@ Parameters:
     Type: String
     Description: 'Nome do bucket S3'
     Default: 'stock-quotes-data'
+  
+  LambdaCodeBucket:
+    Type: String
+    Description: 'Bucket com código Lambda'
+    Default: 'lambda-code-20251201223321-8309'
+  
+  LambdaCodeKey:
+    Type: String
+    Description: 'Chave do arquivo ZIP no S3'
+    Default: 'lambda-deployment.zip'
 
 Resources:
   # S3 Bucket para armazenar dados
@@ -67,11 +77,11 @@ Resources:
                   - s3:GetObject
                   - s3:ListBucket
                 Resource:
-                  - !Sub '${StockDataBucket}/*'
+                  - !Sub '${StockDataBucket.Arn}/*'
                   - !GetAtt StockDataBucket.Arn
 
   # Lambda Function
-    StockFetcherFunction:
+  StockFetcherFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-StockFetcher'
@@ -85,13 +95,13 @@ Resources:
           ALPHA_VANTAGE_API_KEY: !Ref AlphaVantageApiKey
           S3_BUCKET_NAME: !Ref StockDataBucket
       Code:
-        S3Bucket: "lambda-code-20251201221655-2131"  # <-- SEU BUCKET
-        S3Key: "lambda-deployment.zip"                # <-- SEU ARQUIVO
-        Tags:
-          - Key: Project
-            Value: StockDataPipeline
-          - Key: Environment
-            Value: Educational
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: !Ref LambdaCodeKey
+      Tags:
+        - Key: Project
+          Value: StockDataPipeline
+        - Key: Environment
+          Value: Educational
 
   # EventBridge Rule para agendar execução
   StockFetcherSchedule:
@@ -115,48 +125,33 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt StockFetcherSchedule.Arn
 
-  Outputs:
-    BucketName:
-      Description: 'Nome do bucket S3 criado'
-      Value: !Ref StockDataBucket
-      Export:
-        Name: !Sub '${AWS::StackName}-BucketName'
-
+Outputs:
+  BucketName:
+    Description: 'Nome do bucket S3 criado'
+    Value: !Ref StockDataBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-BucketName'
+  
   BucketArn:
     Description: 'ARN do bucket S3'
     Value: !GetAtt StockDataBucket.Arn
     Export:
       Name: !Sub '${AWS::StackName}-BucketArn'
-
+  
   LambdaFunctionName:
     Description: 'Nome da função Lambda'
     Value: !Ref StockFetcherFunction
     Export:
       Name: !Sub '${AWS::StackName}-LambdaFunctionName'
-
+  
   LambdaFunctionArn:
     Description: 'ARN da função Lambda'
     Value: !GetAtt StockFetcherFunction.Arn
     Export:
       Name: !Sub '${AWS::StackName}-LambdaFunctionArn'
-
+  
   EventBridgeRuleArn:
     Description: 'ARN da regra do EventBridge'
     Value: !GetAtt StockFetcherSchedule.Arn
     Export:
       Name: !Sub '${AWS::StackName}-EventBridgeRuleArn'
-
-  LambdaCodeBucket:
-      Type: String
-      Description: 'Bucket com código Lambda'
-      Default: 'lambda-code-20251201223321-8309'
-
-  LambdaCodeKey:
-      Type: String
-      Description: 'Chave do arquivo ZIP no S3'
-      Default: 'lambda-deployment.zip'
-
-
-
-
-
