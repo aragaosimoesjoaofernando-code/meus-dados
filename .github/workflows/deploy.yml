@@ -69,12 +69,13 @@ jobs:
             --stack-name ${{ env.STACK_NAME }} \
             --region ${{ env.AWS_REGION }} \
             --resolve-s3 \
-            --capabilities CAPABILITY_IAM \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              AlphaVantageApiKey=${{ inputs.alpha_vantage_api_key }} \
+              AlphaVantageApiKey=${{ secrets.ALPHA_VINTAGE_API_KEY }} \
               BucketName=${{ inputs.bucket_name || 'stock-quotes-data' }} \
             --no-confirm-changeset \
-            --no-fail-on-empty-changeset
+            --no-fail-on-empty-changeset \
+            --resolve-s3
 
       - name: Deployment Summary
         run: |
