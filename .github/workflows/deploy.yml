@@ -68,6 +68,7 @@ jobs:
           sam deploy \
             --stack-name ${{ env.STACK_NAME }} \
             --region ${{ env.AWS_REGION }} \
+            --resolve-s3 \
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
               AlphaVantageApiKey=${{ inputs.alpha_vantage_api_key }} \
