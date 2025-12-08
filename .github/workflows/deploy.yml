@@ -20,10 +20,6 @@ on:
           - us-west-2
           - eu-west-1
           - sa-east-1
-      alpha_vantage_api_key:
-        description: 'Chave da API Alpha Vantage'
-        required: true
-        type: string
       bucket_name:
         description: 'Nome do bucket S3'
         required: false
@@ -33,10 +29,11 @@ on:
 env:
   AWS_REGION: ${{ inputs.aws_region || 'us-east-1' }}
   STACK_NAME: ${{ inputs.stack_name || 'stock-data-pipeline' }}
+  S3_BUCKET: ${{ inputs.bucket_name || 'stock-quotes-data' }}
 
 jobs:
   deploy:
-    name: Build and Deploy Lambda
+    name: Build and Deploy SAM Application
     runs-on: ubuntu-latest
     
     steps:
@@ -59,27 +56,70 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Create S3 bucket for SAM artifacts
+        id: create-bucket
+        run: |
+          ARTIFACT_BUCKET="${{ env.S3_BUCKET }}-sam-artifacts-${{ env.AWS_REGION }}"
+          
+          # Verifica se o bucket já existe
+          if aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
+            echo "Bucket $ARTIFACT_BUCKET já existe."
+            echo "artifact_bucket=$ARTIFACT_BUCKET" >> $GITHUB_OUTPUT
+          else
+            echo "Criando bucket S3 para artifacts do SAM: $ARTIFACT_BUCKET"
+            
+            # Configuração para região us-east-1 (requer parâmetro diferente)
+            if [[ "${{ env.AWS_REGION }}" == "us-east-1" ]]; then
+              aws s3api create-bucket \
+                --bucket "$ARTIFACT_BUCKET" \
+                --region "${{ env.AWS_REGION }}"
+            else
+              aws s3api create-bucket \
+                --bucket "$ARTIFACT_BUCKET" \
+                --region "${{ env.AWS_REGION }}" \
+                --create-bucket-configuration LocationConstraint="${{ env.AWS_REGION }}"
+            fi
+            
+            # Configurar versionamento e lifecycle
+            aws s3api put-bucket-versioning \
+              --bucket "$ARTIFACT_BUCKET" \
+              --versioning-configuration Status=Enabled
+              
+            echo "artifact_bucket=$ARTIFACT_BUCKET" >> $GITHUB_OUTPUT
+            echo "✅ Bucket criado com sucesso!"
+          fi
+
       - name: SAM Build
         run: |
           sam build --template template.yaml
 
       - name: SAM Deploy
         run: |
+          ARTIFACT_BUCKET="${{ env.S3_BUCKET }}-sam-artifacts-${{ env.AWS_REGION }}"
+          
+          # Formato 1: Usando ParameterKey=Value
           sam deploy \
             --stack-name ${{ env.STACK_NAME }} \
+            --s3-bucket "$ARTIFACT_BUCKET" \
             --region ${{ env.AWS_REGION }} \
-            --resolve-s3 \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              AlphaVantageApiKey=${{ secrets.ALPHA_VINTAGE_API_KEY }} \
-              BucketName=${{ inputs.bucket_name || 'stock-quotes-data' }} \
+              "ParameterKey=AlphaVantageApiKey,ParameterValue=${{ secrets.ALPHA_VANTAGE_API_KEY }}" \
+              "ParameterKey=BucketName,ParameterValue=${{ env.S3_BUCKET }}" \
             --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --resolve-s3
+            --no-fail-on-empty-changeset
 
       - name: Deployment Summary
         run: |
           echo "✅ Deploy concluído com sucesso!"
           echo "Stack: ${{ env.STACK_NAME }}"
           echo "Região: ${{ env.AWS_REGION }}"
-
+          echo "Bucket de dados: ${{ env.S3_BUCKET }}"
+          echo "Bucket SAM artifacts: ${{ env.S3_BUCKET }}-sam-artifacts-${{ env.AWS_REGION }}"
+          
+          # Verifica se o deploy foi bem sucedido
+          aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query "Stacks[0].Outputs" \
+            --output table 2>/dev/null || echo "Stack criado. Para ver os outputs, verifique no Console AWS."
