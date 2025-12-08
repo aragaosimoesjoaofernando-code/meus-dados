@@ -20,10 +20,6 @@ on:
           - us-west-2
           - eu-west-1
           - sa-east-1
-      alpha_vantage_api_key:
-        description: 'Chave da API Alpha Vantage'
-        required: true
-        type: string
       bucket_name:
         description: 'Nome do bucket S3'
         required: false
@@ -33,10 +29,11 @@ on:
 env:
   AWS_REGION: ${{ inputs.aws_region || 'us-east-1' }}
   STACK_NAME: ${{ inputs.stack_name || 'stock-data-pipeline' }}
+  S3_BUCKET: ${{ inputs.bucket_name || 'stock-quotes-data' }}
 
 jobs:
   deploy:
-    name: Build and Deploy Lambda
+    name: Build and Deploy SAM Application
     runs-on: ubuntu-latest
     
     steps:
@@ -59,6 +56,25 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Create S3 bucket for SAM artifacts (if needed)
+        run: |
+          # Verifica se o bucket já existe, se não, cria
+          if ! aws s3api head-bucket --bucket "${{ env.S3_BUCKET }}-sam-artifacts" 2>/dev/null; then
+            echo "Creating S3 bucket for SAM artifacts..."
+            if [[ "${{ env.AWS_REGION }}" == "us-east-1" ]]; then
+              aws s3api create-bucket \
+                --bucket "${{ env.S3_BUCKET }}-sam-artifacts" \
+                --region "${{ env.AWS_REGION }}"
+            else
+              aws s3api create-bucket \
+                --bucket "${{ env.S3_BUCKET }}-sam-artifacts" \
+                --region "${{ env.AWS_REGION }}" \
+                --create-bucket-configuration LocationConstraint="${{ env.AWS_REGION }}"
+            fi
+          else
+            echo "S3 bucket for SAM artifacts already exists."
+          fi
+
       - name: SAM Build
         run: |
           sam build --template template.yaml
@@ -67,19 +83,20 @@ jobs:
         run: |
           sam deploy \
             --stack-name ${{ env.STACK_NAME }} \
+            --s3-bucket "${{ env.S3_BUCKET }}-sam-artifacts" \
             --region ${{ env.AWS_REGION }} \
-            --resolve-s3 \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              AlphaVantageApiKey=${{ secrets.ALPHA_VINTAGE_API_KEY }} \
-              BucketName=${{ inputs.bucket_name || 'stock-quotes-data' }} \
+              AlphaVantageApiKey=${{ secrets.ALPHA_VANTAGE_API_KEY }} \
+              BucketName=${{ env.S3_BUCKET }} \
             --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --resolve-s3
+            --no-fail-on-empty-changeset
 
       - name: Deployment Summary
         run: |
           echo "✅ Deploy concluído com sucesso!"
           echo "Stack: ${{ env.STACK_NAME }}"
           echo "Região: ${{ env.AWS_REGION }}"
+          echo "Bucket de dados: ${{ env.S3_BUCKET }}"
+          echo "Bucket SAM artifacts: ${{ env.S3_BUCKET }}-sam-artifacts"
 
