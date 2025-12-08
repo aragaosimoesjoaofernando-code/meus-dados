@@ -93,19 +93,40 @@ jobs:
         run: |
           sam build --template template.yaml
 
-      - name: SAM Deploy
+      - name: Validate required secrets
+        # load the secret into an env var (not printed) and fail early if missing
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
         run: |
-          ARTIFACT_BUCKET="${{ env.S3_BUCKET }}-sam-artifacts-${{ env.AWS_REGION }}"
-          
-          # Formato 1: Usando ParameterKey=Value
+          if [ -z "${ALPHA_VANTAGE_API_KEY}" ]; then
+            echo "ERROR: repository secret ALPHA_VANTAGE_API_KEY is not set. Please add it under Settings → Secrets → Actions."
+            exit 1
+          fi
+          echo "Secrets present."
+
+      - name: SAM Deploy
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          S3_BUCKET: ${{ env.S3_BUCKET }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          STACK_NAME: ${{ env.STACK_NAME }}
+        run: |
+          ARTIFACT_BUCKET="${S3_BUCKET}-sam-artifacts-${AWS_REGION}"
+
+          # Build the Parameter Overrides using the ParameterKey,ParameterValue form to avoid
+          # problems with empty values and to keep parsing consistent.
+          PARAM_OVERRIDES="ParameterKey=BucketName,ParameterValue=${S3_BUCKET}"
+
+          # Only add the API key because we validated it's present in the previous step.
+          PARAM_OVERRIDES="${PARAM_OVERRIDES} ParameterKey=AlphaVantageApiKey,ParameterValue=${ALPHA_VANTAGE_API_KEY}"
+
+          # Deploy (do not print parameters so the secret is not leaked)
           sam deploy \
-            --stack-name ${{ env.STACK_NAME }} \
-            --s3-bucket "$ARTIFACT_BUCKET" \
-            --region ${{ env.AWS_REGION }} \
+            --stack-name "${STACK_NAME}" \
+            --s3-bucket "${ARTIFACT_BUCKET}" \
+            --region "${AWS_REGION}" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --parameter-overrides \
-                AlphaVantageApiKey=${{ secrets.ALPHA_VANTAGE_API_KEY }} \
-                BucketName=bucket-teste-joao \
+            --parameter-overrides ${PARAM_OVERRIDES} \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
 
