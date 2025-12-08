@@ -104,8 +104,8 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --parameter-overrides \
-              "ParameterKey=AlphaVantageApiKey,ParameterValue=${{ secrets.ALPHA_VANTAGE_API_KEY }}" \
-              "ParameterKey=BucketName,ParameterValue=${{ env.S3_BUCKET }}" \
+                AlphaVantageApiKey=${{ secrets.ALPHA_VANTAGE_API_KEY }} \
+                BucketName=bucket-teste-joao \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
 
