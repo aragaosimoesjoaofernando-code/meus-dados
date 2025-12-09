@@ -56,39 +56,77 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Create S3 bucket for SAM artifacts (if needed)
+      - name: Create S3 bucket for SAM artifacts
+        id: create-bucket
         run: |
-          # Verifica se o bucket já existe, se não, cria
-          if ! aws s3api head-bucket --bucket "${{ env.S3_BUCKET }}-sam-artifacts" 2>/dev/null; then
-            echo "Creating S3 bucket for SAM artifacts..."
+          ARTIFACT_BUCKET="${{ env.S3_BUCKET }}-sam-artifacts-${{ env.AWS_REGION }}"
+          
+          # Verifica se o bucket já existe
+          if aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
+            echo "Bucket $ARTIFACT_BUCKET já existe."
+            echo "artifact_bucket=$ARTIFACT_BUCKET" >> $GITHUB_OUTPUT
+          else
+            echo "Criando bucket S3 para artifacts do SAM: $ARTIFACT_BUCKET"
+            
+            # Configuração para região us-east-1 (requer parâmetro diferente)
             if [[ "${{ env.AWS_REGION }}" == "us-east-1" ]]; then
               aws s3api create-bucket \
-                --bucket "${{ env.S3_BUCKET }}-sam-artifacts" \
+                --bucket "$ARTIFACT_BUCKET" \
                 --region "${{ env.AWS_REGION }}"
             else
               aws s3api create-bucket \
-                --bucket "${{ env.S3_BUCKET }}-sam-artifacts" \
+                --bucket "$ARTIFACT_BUCKET" \
                 --region "${{ env.AWS_REGION }}" \
                 --create-bucket-configuration LocationConstraint="${{ env.AWS_REGION }}"
             fi
-          else
-            echo "S3 bucket for SAM artifacts already exists."
+            
+            # Configurar versionamento e lifecycle
+            aws s3api put-bucket-versioning \
+              --bucket "$ARTIFACT_BUCKET" \
+              --versioning-configuration Status=Enabled
+              
+            echo "artifact_bucket=$ARTIFACT_BUCKET" >> $GITHUB_OUTPUT
+            echo "✅ Bucket criado com sucesso!"
           fi
 
       - name: SAM Build
         run: |
           sam build --template template.yaml
 
-      - name: SAM Deploy
+      - name: Validate required secrets
+        # load the secret into an env var (not printed) and fail early if missing
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
         run: |
+          if [ -z "${ALPHA_VANTAGE_API_KEY}" ]; then
+            echo "ERROR: repository secret ALPHA_VANTAGE_API_KEY is not set. Please add it under Settings → Secrets → Actions."
+            exit 1
+          fi
+          echo "Secrets present."
+
+      - name: SAM Deploy
+        env:
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          S3_BUCKET: ${{ env.S3_BUCKET }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          STACK_NAME: ${{ env.STACK_NAME }}
+        run: |
+          ARTIFACT_BUCKET="${S3_BUCKET}-sam-artifacts-${AWS_REGION}"
+
+          # Build the Parameter Overrides using the ParameterKey,ParameterValue form to avoid
+          # problems with empty values and to keep parsing consistent.
+          PARAM_OVERRIDES="ParameterKey=BucketName,ParameterValue=${S3_BUCKET}"
+
+          # Only add the API key because we validated it's present in the previous step.
+          PARAM_OVERRIDES="${PARAM_OVERRIDES} ParameterKey=AlphaVantageApiKey,ParameterValue=${ALPHA_VANTAGE_API_KEY}"
+
+          # Deploy (do not print parameters so the secret is not leaked)
           sam deploy \
-            --stack-name ${{ env.STACK_NAME }} \
-            --s3-bucket "${{ env.S3_BUCKET }}-sam-artifacts" \
-            --region ${{ env.AWS_REGION }} \
+            --stack-name "${STACK_NAME}" \
+            --s3-bucket "${ARTIFACT_BUCKET}" \
+            --region "${AWS_REGION}" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
-            --parameter-overrides \
-              AlphaVantageApiKey=${{ secrets.ALPHA_VANTAGE_API_KEY }} \
-              BucketName=${{ env.S3_BUCKET }} \
+            --parameter-overrides ${PARAM_OVERRIDES} \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset
 
@@ -98,5 +136,11 @@ jobs:
           echo "Stack: ${{ env.STACK_NAME }}"
           echo "Região: ${{ env.AWS_REGION }}"
           echo "Bucket de dados: ${{ env.S3_BUCKET }}"
-          echo "Bucket SAM artifacts: ${{ env.S3_BUCKET }}-sam-artifacts"
-
+          echo "Bucket SAM artifacts: ${{ env.S3_BUCKET }}-sam-artifacts-${{ env.AWS_REGION }}"
+          
+          # Verifica se o deploy foi bem sucedido
+          aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query "Stacks[0].Outputs" \
+            --output table 2>/dev/null || echo "Stack criado. Para ver os outputs, verifique no Console AWS."
